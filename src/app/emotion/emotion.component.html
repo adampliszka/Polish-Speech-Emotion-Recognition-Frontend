@@ -1,0 +1,53 @@
+<div class="container text-center mt-5">
+  <h1 class="mb-4">Real-time Emotion Recognition</h1>
+  <p class="text-muted">{{ statusMessage$ | async }}</p>
+
+  <div class="row justify-content-center mb-3">
+    <div class="col-md-6">
+      <label for="model" class="form-label">Select Model:</label>
+      <div class="input-group">
+        <select id="model" class="form-select" [(ngModel)]="modelName">
+          <option value="XGBoost">XGBoost</option>
+          <option value="HuBERT">HuBERT</option>
+        </select>
+        <button class="btn btn-primary" (click)="loadModel()">Load Model</button>
+      </div>
+    </div>
+  </div>
+
+  <div *ngIf="modelLoaded$ | async" class="row justify-content-center mb-4">
+    <div class="col-md-6 d-flex align-items-center">
+      <button
+        class="btn btn-secondary me-2"
+        (click)="uploadAudio()"
+      >
+        Upload Audio
+      </button>
+      <button
+        id="recordButton"
+        class="btn btn-secondary me-2"
+        (click)="recording ? stopRecording() : startRecording()"
+      >
+        {{ recording ? 'Stop Recording' : 'Record Voice' }}
+      </button>
+      <button
+        id = "continuousAnalysisButton"
+        class="btn btn-secondary"
+        (click)="continuousAnalysis ? stopContinuousAnalysis() : startContinuousAnalysis()"
+      >
+        {{ continuousAnalysis ? 'Stop Continuous Analysis' : 'Start Continuous Analysis' }}
+      </button>
+    </div>
+  </div>
+
+  <div class="chart-container">
+    <div
+      class="bar {{ emotions[i] }}"
+      *ngFor="let probability of probabilities$ | async; let i = index"
+      [ngStyle]="{ height: (probability * 100) + '%' }"
+    >
+      <span class="percent">{{ (probability * 100) | number: '1.0-0' }}%</span>
+      <span class="label">{{ emotions[i] }}</span>
+    </div>
+  </div>
+</div>
