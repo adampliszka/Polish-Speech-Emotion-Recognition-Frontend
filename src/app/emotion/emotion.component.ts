@@ -289,7 +289,6 @@ export class EmotionComponent {
       this.bufferIndex = audioData.length - availableSpace;
     }
 
-    // Draw the waveform from the rolling buffer
     context.beginPath();
     context.moveTo(0, middle);
 
