@@ -31,7 +31,6 @@ export class EmotionComponent {
   modelLoaded$ = this.modelLoadedSubject.asObservable();
 
   private loadModelSubject = new BehaviorSubject<string | null>(null);
-  private predictSubject = new BehaviorSubject<Float32Array | null>(null);
   recording: boolean = false;
   isPredicting: boolean = false;
   continuousAnalysis: boolean = false;
@@ -61,27 +60,8 @@ export class EmotionComponent {
       })
     ).subscribe();
 
-    this.predictSubject.pipe(
-      switchMap((audioData) => {
-        if (!audioData) return EMPTY;
-
-        const sanitizedAudioData = audioData.map((value) => isNaN(value) ? 0 : value);
-        return this.emotionService.predict(sanitizedAudioData, 16000).pipe(
-          tap((response) => {
-            this.probabilitiesSubject.next(response.probabilities);
-            this.updateChart(response.probabilities);
-            this.statusMessageSubject.next(`Predicted Emotion: ${response.predicted_emotion}`);
-          }),
-          catchError((error) => {
-            this.statusMessageSubject.next(`Error: ${error.error?.message || JSON.stringify(error)}`);
-            return of(null);
-          }),
-          tap(() => {
-            this.isPredicting = false;
-          })
-        );
-      })
-    ).subscribe();
+    // predictSubject is no longer used - all audio processing now goes directly to emotionService
+    // with original sample rates for consistent backend resampling
   }
 
   loadModel() {
@@ -196,19 +176,30 @@ export class EmotionComponent {
           // Get audio data from the first channel
           const audioData = audioBuffer.getChannelData(0);
 
-          // Resample to 16kHz if needed
-          const targetSampleRate = 16000;
-          let processedAudioData: Float32Array;
-
-          if (audioBuffer.sampleRate !== targetSampleRate) {
-            processedAudioData = this.resampleAudio(audioData, audioBuffer.sampleRate, targetSampleRate);
-          } else {
-            processedAudioData = audioData;
-          }
-
+          // Send original audio data and sample rate to backend
+          // Let the backend handle proper resampling using torchaudio
           this.isPredicting = true;
           this.statusMessageSubject.next('Predicting...');
-          this.predictSubject.next(processedAudioData);
+          
+          // Send original data with original sample rate directly to service
+          const sanitizedAudioData = new Float32Array(audioData.length);
+          for (let i = 0; i < audioData.length; i++) {
+            sanitizedAudioData[i] = isNaN(audioData[i]) ? 0 : audioData[i];
+          }
+          this.emotionService.predict(sanitizedAudioData, audioBuffer.sampleRate).pipe(
+            tap((response) => {
+              this.probabilitiesSubject.next(response.probabilities);
+              this.updateChart(response.probabilities);
+              this.statusMessageSubject.next(`Predicted Emotion: ${response.predicted_emotion}`);
+            }),
+            catchError((error) => {
+              this.statusMessageSubject.next(`Error: ${error.error?.message || JSON.stringify(error)}`);
+              return of(null);
+            }),
+            tap(() => {
+              this.isPredicting = false;
+            })
+          ).subscribe();
           this.audioChunks = [];
 
           // Clean up
@@ -261,9 +252,9 @@ export class EmotionComponent {
     this.continuousAnalysis = true;
     this.audioContext = new AudioContext();
     const inputSampleRate = this.audioContext.sampleRate;
-    const targetSampleRate = 16000;
     const chunkDuration = 1;
-    const chunkSize = targetSampleRate * chunkDuration;
+    // Calculate chunk size based on original sample rate (not 16kHz)
+    const chunkSize = inputSampleRate * chunkDuration;
     let audioBuffer: Float32Array = new Float32Array();
 
     await this.audioContext.audioWorklet.addModule('assets/audio-processor.js');
@@ -274,16 +265,34 @@ export class EmotionComponent {
       audioWorkletNode.port.onmessage = (event) => {
         const inputData = event.data;
 
-        const resampledData = this.resampleAudio(inputData, inputSampleRate, targetSampleRate);
-
-        const newBuffer = new Float32Array(audioBuffer.length + resampledData.length);
+        // Send original audio data without client-side resampling
+        // Let the backend handle proper resampling using torchaudio
+        const newBuffer = new Float32Array(audioBuffer.length + inputData.length);
         newBuffer.set(audioBuffer);
-        newBuffer.set(resampledData, audioBuffer.length);
+        newBuffer.set(inputData, audioBuffer.length);
         audioBuffer = newBuffer;
 
         if (audioBuffer.length >= chunkSize) {
           const chunk = audioBuffer.slice(0, chunkSize);
-          this.predictSubject.next(chunk);
+          
+          // Send chunk directly to emotion service with original sample rate
+          const sanitizedAudioData = new Float32Array(chunk.length);
+          for (let i = 0; i < chunk.length; i++) {
+            sanitizedAudioData[i] = isNaN(chunk[i]) ? 0 : chunk[i];
+          }
+          
+          this.emotionService.predict(sanitizedAudioData, inputSampleRate).pipe(
+            tap((response) => {
+              this.probabilitiesSubject.next(response.probabilities);
+              this.updateChart(response.probabilities);
+              this.statusMessageSubject.next(`Predicted Emotion: ${response.predicted_emotion}`);
+            }),
+            catchError((error) => {
+              this.statusMessageSubject.next(`Error: ${error.error?.message || JSON.stringify(error)}`);
+              return of(null);
+            })
+          ).subscribe();
+          
           audioBuffer = audioBuffer.slice(chunkSize);
         }
       };
@@ -314,19 +323,7 @@ export class EmotionComponent {
     this.audioContext?.close();
   }
 
-  private resampleAudio(inputData: Float32Array, inputRate: number, outputRate: number): Float32Array {
-    if (inputRate === outputRate) return inputData;
-
-    const ratio = inputRate / outputRate;
-    const newLength = Math.floor(inputData.length / ratio);
-    const resampledData = new Float32Array(newLength);
-
-    for (let i = 0; i < newLength; i++) {
-      resampledData[i] = inputData[Math.floor(i * ratio)];
-    }
-
-    return resampledData;
-  }
+  // resampleAudio method removed - all resampling now handled by backend using torchaudio
 
   updateChart(probabilities: number[]) {
     this.probabilitiesSubject.next(probabilities);
