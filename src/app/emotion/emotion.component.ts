@@ -101,7 +101,7 @@ export class EmotionComponent {
       this.statusMessageSubject.next('Please stop continuous analysis before uploading audio.');
       return;
     }
-    
+
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'audio/*';
@@ -110,32 +110,32 @@ export class EmotionComponent {
       if (file) {
         try {
           this.statusMessageSubject.next('Processing audio file...');
-          
+
           // Properly decode audio file using Web Audio API
           const arrayBuffer = await file.arrayBuffer();
           const audioContext = new AudioContext();
           const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-          
+
           // Get audio data from the first channel
           const audioData = audioBuffer.getChannelData(0);
-          
+
           // Resample to 16kHz if needed
           const targetSampleRate = 16000;
           let processedAudioData: Float32Array;
-          
+
           if (audioBuffer.sampleRate !== targetSampleRate) {
             processedAudioData = this.resampleAudio(audioData, audioBuffer.sampleRate, targetSampleRate);
           } else {
             processedAudioData = audioData;
           }
-          
+
           this.isPredicting = true;
           this.statusMessageSubject.next('Predicting...');
           this.predictSubject.next(processedAudioData);
-          
+
           // Clean up
           await audioContext.close();
-          
+
         } catch (error) {
           this.statusMessageSubject.next(`Error processing audio file: ${error}`);
           console.error('Audio processing error:', error);
@@ -173,22 +173,22 @@ export class EmotionComponent {
       this.mediaRecorder.onstop = async () => {
         try {
           this.statusMessageSubject.next('Processing recorded audio...');
-          
+
           // Create audio blob and properly decode it
           const audioBlob = new Blob(this.audioChunks, { type: 'audio/wav' });
           const arrayBuffer = await audioBlob.arrayBuffer();
-          
+
           // Use Web Audio API to properly decode the recorded audio
           const audioContext = new AudioContext();
           const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-          
+
           // Get audio data from the first channel
           const audioData = audioBuffer.getChannelData(0);
-          
+
           // Resample to 16kHz if needed
           const targetSampleRate = 16000;
           let processedAudioData: Float32Array;
-          
+
           if (audioBuffer.sampleRate !== targetSampleRate) {
             processedAudioData = this.resampleAudio(audioData, audioBuffer.sampleRate, targetSampleRate);
           } else {
@@ -199,15 +199,15 @@ export class EmotionComponent {
           this.statusMessageSubject.next('Predicting...');
           this.predictSubject.next(processedAudioData);
           this.audioChunks = [];
-          
+
           // Clean up
           await audioContext.close();
-          
+
         } catch (error) {
           this.statusMessageSubject.next(`Error processing recorded audio: ${error}`);
           console.error('Recording processing error:', error);
         }
-        
+
         button.classList.remove('recording-progress');
       };
 
@@ -348,7 +348,10 @@ export class EmotionComponent {
     const step = Math.ceil(this.rollingBuffer.length / width);
     for (let i = 0; i < width; i++) {
       const value = this.rollingBuffer[(this.bufferIndex + i * step) % this.rollingBuffer.length] || 0;
-      const y = middle + value * middle;
+
+      const logValue = Math.sign(value) * Math.log1p(Math.abs(value));
+      const y = middle + logValue * middle;
+
       context.lineTo(i, y);
     }
 
