@@ -119,19 +119,30 @@ export class EmotionComponent {
           // Get audio data from the first channel
           const audioData = audioBuffer.getChannelData(0);
 
-          // Resample to 16kHz if needed
-          const targetSampleRate = 16000;
-          let processedAudioData: Float32Array;
-
-          if (audioBuffer.sampleRate !== targetSampleRate) {
-            processedAudioData = this.resampleAudio(audioData, audioBuffer.sampleRate, targetSampleRate);
-          } else {
-            processedAudioData = audioData;
-          }
-
+          // Send original audio data and sample rate to backend
+          // Let the backend handle proper resampling using torchaudio
           this.isPredicting = true;
           this.statusMessageSubject.next('Predicting...');
-          this.predictSubject.next(processedAudioData);
+          
+          // Send original data with original sample rate directly to service
+          const sanitizedAudioData = new Float32Array(audioData.length);
+          for (let i = 0; i < audioData.length; i++) {
+            sanitizedAudioData[i] = isNaN(audioData[i]) ? 0 : audioData[i];
+          }
+          this.emotionService.predict(sanitizedAudioData, audioBuffer.sampleRate).pipe(
+            tap((response) => {
+              this.probabilitiesSubject.next(response.probabilities);
+              this.updateChart(response.probabilities);
+              this.statusMessageSubject.next(`Predicted Emotion: ${response.predicted_emotion}`);
+            }),
+            catchError((error) => {
+              this.statusMessageSubject.next(`Error: ${error.error?.message || JSON.stringify(error)}`);
+              return of(null);
+            }),
+            tap(() => {
+              this.isPredicting = false;
+            })
+          ).subscribe();
 
           // Clean up
           await audioContext.close();
