@@ -41,6 +41,9 @@ export class EmotionComponent {
 
   private recordingTimeoutId: any = null;
 
+  private rollingBuffer: Float32Array = new Float32Array(16000 * 10); // 10 seconds at 16kHz
+  private bufferIndex: number = 0;
+
   constructor(private emotionService: EmotionService) {
     this.loadModelSubject.pipe(
       switchMap((modelName) => {
@@ -161,6 +164,7 @@ export class EmotionComponent {
     navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
       this.mediaRecorder = new MediaRecorder(stream);
       this.audioChunks = [];
+      this.updateWaveformDuringRecording();
 
       this.mediaRecorder.ondataavailable = (event) => {
         this.audioChunks.push(event.data);
@@ -231,7 +235,6 @@ export class EmotionComponent {
     const button = document.getElementById('recordButton') as HTMLElement;
     button.classList.remove('recording-progress');
     button.classList.add('snap-back');
-
     setTimeout(() => button.classList.remove('snap-back'), 0);
   }
 
@@ -275,6 +278,23 @@ export class EmotionComponent {
       };
 
       source.connect(audioWorkletNode);
+
+      const analyser = this.audioContext!.createAnalyser();
+      source.connect(analyser);
+
+      const bufferLength = analyser.fftSize;
+      const dataArray = new Float32Array(bufferLength);
+
+      const draw = () => {
+        if (!this.continuousAnalysis) return;
+
+        analyser.getFloatTimeDomainData(dataArray);
+        this.drawWaveform(dataArray);
+
+        requestAnimationFrame(draw);
+      };
+
+      draw();
     });
   }
 
@@ -299,5 +319,63 @@ export class EmotionComponent {
 
   updateChart(probabilities: number[]) {
     this.probabilitiesSubject.next(probabilities);
+  }
+
+  private drawWaveform(audioData: Float32Array) {
+    const canvas = document.getElementById('waveform') as HTMLCanvasElement;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+
+    const width = canvas.width;
+    const height = canvas.height;
+    const middle = height / 2;
+
+    const availableSpace = this.rollingBuffer.length - this.bufferIndex;
+    if (audioData.length <= availableSpace) {
+      this.rollingBuffer.set(audioData, this.bufferIndex);
+      this.bufferIndex += audioData.length;
+    } else {
+      this.rollingBuffer.set(audioData.subarray(0, availableSpace), this.bufferIndex);
+      this.rollingBuffer.set(audioData.subarray(availableSpace), 0);
+      this.bufferIndex = audioData.length - availableSpace;
+    }
+
+    context.beginPath();
+    context.moveTo(0, middle);
+
+    const step = Math.ceil(this.rollingBuffer.length / width);
+    for (let i = 0; i < width; i++) {
+      const value = this.rollingBuffer[(this.bufferIndex + i * step) % this.rollingBuffer.length] || 0;
+      const y = middle + value * middle;
+      context.lineTo(i, y);
+    }
+
+    context.strokeStyle = '#007bff';
+    context.lineWidth = 2;
+    context.stroke();
+  }
+
+  private updateWaveformDuringRecording() {
+    if (!this.audioContext || !this.mediaRecorder) return;
+
+    const analyser = this.audioContext.createAnalyser();
+    const source = this.audioContext.createMediaStreamSource(this.mediaRecorder.stream);
+    source.connect(analyser);
+
+    const bufferLength = analyser.fftSize;
+    const dataArray = new Float32Array(bufferLength);
+
+    const draw = () => {
+      if (!this.recording) return;
+
+      analyser.getFloatTimeDomainData(dataArray);
+      this.drawWaveform(dataArray);
+
+      requestAnimationFrame(draw);
+    };
+
+    draw();
   }
 }

@@ -233,3 +233,11 @@ svg#chart {
     height: auto;
   }
 }
+
+canvas#waveform {
+  display: block;
+  margin: 20px auto;
+  border: 1px solid #dee2e6;
+  border-radius: 5px;
+  background-color: #f8f9fa;
+}
